@@ -1,4 +1,5 @@
-use tracing::info;
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tracing::{debug, info};
 use tracing_subscriber::prelude::*;
 
 fn main() {
@@ -44,8 +45,38 @@ fn handle_avg_query(storage: &Vec<PricePoint>, query: QueryRange) -> i32 {
     }
 }
 
+async fn read_message(stream: &mut (impl AsyncRead + std::marker::Unpin)) -> (char, i32, i32) {
+    // for the read stream, read the 9 bytes
+    let message_type = stream.read_u8().await.unwrap();
+    let field_1 = stream.read_i32().await.unwrap();
+    let field_2 = stream.read_i32().await.unwrap();
+
+    (char::from(message_type), field_1, field_2)
+}
+
 #[cfg(test)]
-mod tests {
+mod parsing_tests {
+
+    use super::*;
+
+    use std::io::Cursor;
+
+    #[tokio::test]
+    async fn test_parsing() {
+        // setup_tracing();
+        let mut reader = Cursor::new(vec![
+            0x51, // Q
+            0x00, 0x00, 0x00, 0x01, // 1
+            0x00, 0x00, 0x00, 0x02, // 2
+        ]);
+        let result = read_message(&mut reader).await;
+        debug!("results = {:?}", result);
+        assert_eq!(('Q', 1, 2), result);
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
 
     use super::*;
 
