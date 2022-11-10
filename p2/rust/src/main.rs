@@ -1,17 +1,24 @@
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tracing::{debug, info};
+use tracing::dispatcher::DefaultGuard;
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    setup_tracing();
+    let _guard = setup_tracing();
     info!("Hello, world!");
 }
 
-fn setup_tracing() {
-    tracing_subscriber::registry()
+/**
+ * Once the guard is dropped, the global default is reset.
+ * This helps with testing because there can only be 1 global default at a time.
+ * Using `init()` will fail, so that's why we use `set_default()`
+ */
+fn setup_tracing() -> DefaultGuard {
+    let guard = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
-        .init();
+        .set_default();
     info!("Tracing has been setup");
+    guard
 }
 
 // Time, Price
@@ -63,14 +70,14 @@ mod parsing_tests {
 
     #[tokio::test]
     async fn test_parsing() {
-        // setup_tracing();
+        let _guard = setup_tracing();
         let mut reader = Cursor::new(vec![
             0x51, // Q
             0x00, 0x00, 0x00, 0x01, // 1
             0x00, 0x00, 0x00, 0x02, // 2
         ]);
         let result = read_message(&mut reader).await;
-        debug!("results = {:?}", result);
+        info!("results = {:?}", result);
         assert_eq!(('Q', 1, 2), result);
     }
 }
@@ -82,7 +89,7 @@ mod storage_tests {
 
     #[tokio::test]
     async fn test() {
-        setup_tracing();
+        let _guard = setup_tracing();
 
         {
             // inclusive on edges
