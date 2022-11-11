@@ -1,6 +1,6 @@
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tracing::{debug, info};
 use tracing::dispatcher::DefaultGuard;
+use tracing::{debug, info, error};
 use tracing_subscriber::prelude::*;
 
 fn main() {
@@ -59,6 +59,46 @@ async fn read_message(stream: &mut (impl AsyncRead + std::marker::Unpin)) -> (ch
     let field_2 = stream.read_i32().await.unwrap();
 
     (char::from(message_type), field_1, field_2)
+}
+
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
+
+async fn serve(ready_signal: oneshot::Sender<bool>) {
+    let listener = TcpListener::bind("0.0.0.0:8000").await.expect("Couldn't start tcp listener on addres");
+    info!("Listening on address: {:?}", listener.local_addr());
+    ready_signal.send(true).expect("Couldn't send ready signal after server has started");
+
+    loop {
+        let stream = listener.accept().await;
+        match stream {
+            Ok(stream) => {
+                info!("Accepted connection for {:?}", stream);
+            }
+            Err(e) => {
+                error!("Error when listening for connection, {:?}", e);
+            }
+        };
+    }
+}
+
+#[cfg(test)]
+mod server_tests {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_server_startup() {
+        let _guard = setup_tracing();
+        let (ready_sender, ready_receiver) = oneshot::channel();
+        tokio::spawn(async {
+            serve(ready_sender).await;
+        });
+
+        let ready_signal = ready_receiver.await;
+        assert_eq!(Ok(true), ready_signal);
+    }
+
 }
 
 #[cfg(test)]
