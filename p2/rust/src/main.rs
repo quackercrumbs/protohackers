@@ -1,13 +1,17 @@
 use std::io;
 use std::net::SocketAddr;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tracing::dispatcher::DefaultGuard;
 use tracing::{debug, error, info};
 use tracing_subscriber::prelude::*;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let _guard = setup_tracing(tracing::Level::DEBUG);
     info!("Hello, world!");
+
+    let (ready_sender, _ready_receiver) = oneshot::channel();
+    serve(ready_sender).await;
 }
 
 /**
@@ -76,7 +80,7 @@ async fn read_message(
     Ok((char::from(message_type), field_1, field_2))
 }
 
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
 async fn serve(ready_signal: oneshot::Sender<bool>) {
@@ -152,6 +156,8 @@ async fn handle_session(mut stream: TcpStream, remote_addr: SocketAddr) {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+
+    use tokio::net::TcpSocket;
 
     #[tokio::test]
     async fn test_problem() {
