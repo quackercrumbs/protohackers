@@ -6,7 +6,7 @@ use tracing::{debug, error, info};
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    let _guard = setup_tracing();
+    let _guard = setup_tracing(tracing::Level::DEBUG);
     info!("Hello, world!");
 }
 
@@ -15,27 +15,34 @@ fn main() {
  * This helps with testing because there can only be 1 global default at a time.
  * Using `init()` will fail, so that's why we use `set_default()`
  */
-fn setup_tracing() -> DefaultGuard {
+fn setup_tracing(level: tracing::Level) -> DefaultGuard {
     let guard = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_filter(tracing_subscriber::filter::LevelFilter::from_level(level)),
+        )
         .set_default();
     info!("Tracing has been setup");
     guard
 }
 
 // Time, Price
+#[derive(Debug)]
 struct PricePoint(i32, i32);
 
 fn handle_insert(storage: &mut Vec<PricePoint>, point: PricePoint) {
+    debug!("inserting: {:?}", point);
     storage.push(point);
 }
 
+#[derive(Debug)]
 struct QueryRange {
     start: i32,
     end: i32,
 }
 
 fn handle_avg_query(storage: &Vec<PricePoint>, query: QueryRange) -> i32 {
+    debug!("query: {:?}", query);
     if query.start > query.end {
         return 0;
     }
@@ -69,7 +76,7 @@ async fn read_message(
     Ok((char::from(message_type), field_1, field_2))
 }
 
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::oneshot;
 
 async fn serve(ready_signal: oneshot::Sender<bool>) {
@@ -137,7 +144,7 @@ async fn handle_session(mut stream: TcpStream, remote_addr: SocketAddr) {
             Err(e) => {
                 info!("Error reading for {:?} : {:?}", remote_addr, e);
                 break;
-            },
+            }
         }
     }
 }
@@ -148,7 +155,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_problem() {
-        let _guard = setup_tracing();
+        let _guard = setup_tracing(tracing::Level::INFO);
         let (ready_sender, ready_receiver) = oneshot::channel();
         let server_handle = tokio::spawn(async {
             serve(ready_sender).await;
@@ -157,13 +164,66 @@ mod integration_tests {
 
         let client_handle = tokio::spawn(async {
             // todo: send request to server
+            let socket = TcpSocket::new_v4().unwrap();
+            let address = "127.0.0.1:8000".parse().unwrap();
+            let mut stream = socket
+                .connect(address)
+                .await
+                .expect("Couldn't connect to test server");
+
+            // insert data
+            // 1 byte = type
+            // 4 bytes = time
+            let base_insert_record = vec![0x49];
+            // first insert
+            let mut insert_record = base_insert_record.clone();
+            insert_record.extend_from_slice(&0_i32.to_be_bytes()); // time
+            insert_record.extend_from_slice(&100_i32.to_be_bytes()); // price
+            debug!("record={:?}", insert_record);
+            stream
+                .write_all(&insert_record)
+                .await
+                .expect("Couldn't write to insert to socket");
+            stream.flush().await.expect("Couldn't flush test socket");
+
+            // second insert
+            let mut insert_record = base_insert_record.clone();
+            insert_record.extend_from_slice(&1_i32.to_be_bytes()); // time
+            insert_record.extend_from_slice(&0_i32.to_be_bytes()); // price
+            debug!("record={:?}", insert_record);
+            stream
+                .write_all(&insert_record)
+                .await
+                .expect("Couldn't write to insert to socket");
+            stream.flush().await.expect("Couldn't flush test socket");
+
+            // query from 0 to 10
+            let query_record = vec![0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10];
+            debug!("query={:?}", query_record);
+            stream
+                .write_all(&query_record)
+                .await
+                .expect("Couldn't write to query to socket");
+            stream.flush().await.expect("Couldn't flush test socket");
+
+            debug!("Written to inserts.");
+
+            stream
+                .shutdown()
+                .await
+                .expect("Couldn't shutdown write side of test socket");
+            info!("Closed stream");
+
+            let query_response = stream.read_i32().await;
+
+            assert_eq!(query_response.is_ok(), true);
+            assert_eq!(50, query_response.unwrap());
         });
         let client_result = client_handle.await;
         debug!("client_result={:?}", client_result);
         assert!(client_result.is_ok());
 
         server_handle.abort();
-
     }
 }
 
@@ -174,7 +234,7 @@ mod server_tests {
 
     #[tokio::test]
     async fn test_server_startup() {
-        let _guard = setup_tracing();
+        let _guard = setup_tracing(tracing::Level::DEBUG);
         let (ready_sender, ready_receiver) = oneshot::channel();
         let server_handle = tokio::spawn(async {
             serve(ready_sender).await;
@@ -182,7 +242,6 @@ mod server_tests {
 
         let ready_signal = ready_receiver.await;
         assert_eq!(Ok(true), ready_signal);
-
 
         server_handle.abort();
     }
@@ -197,7 +256,7 @@ mod parsing_tests {
 
     #[tokio::test]
     async fn test_parsing() {
-        let _guard = setup_tracing();
+        let _guard = setup_tracing(tracing::Level::DEBUG);
         let mut reader = Cursor::new(vec![
             0x51, // Q
             0x00, 0x00, 0x00, 0x01, // 1
@@ -210,7 +269,7 @@ mod parsing_tests {
 
     #[tokio::test]
     async fn test_parsing_empty() {
-        let _guard = setup_tracing();
+        let _guard = setup_tracing(tracing::Level::DEBUG);
         let mut reader = Cursor::new(vec![]);
         let result = read_message(&mut reader).await;
         info!("results = {:?}", result);
@@ -225,7 +284,7 @@ mod storage_tests {
 
     #[tokio::test]
     async fn test() {
-        let _guard = setup_tracing();
+        let _guard = setup_tracing(tracing::Level::DEBUG);
 
         {
             // inclusive on edges
