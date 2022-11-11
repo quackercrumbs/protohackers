@@ -54,14 +54,14 @@ fn handle_avg_query(storage: &Vec<PricePoint>, query: QueryRange) -> i32 {
     let result = storage
         .iter()
         .filter(|price_point| price_point.0 >= query.start && price_point.0 <= query.end)
-        .fold((0, 0), |acc, price_point| {
-            (acc.0 + 1, acc.1 + price_point.1)
+        .fold((0_i64, 0_i64), |acc, price_point| {
+            (acc.0 + 1, acc.1 + price_point.1 as i64)
         });
     let count = result.0;
     if count == 0 {
         return 0;
     } else {
-        result.1 / count
+        (result.1 / count) as i32
     }
 }
 
@@ -141,7 +141,7 @@ async fn handle_session(mut stream: TcpStream, remote_addr: SocketAddr) {
                             "lmao yo get outta here with that fake type: {:?}",
                             invalid_type
                         );
-                        panic!("AHHHH");
+                        break;
                     }
                 }
             }
